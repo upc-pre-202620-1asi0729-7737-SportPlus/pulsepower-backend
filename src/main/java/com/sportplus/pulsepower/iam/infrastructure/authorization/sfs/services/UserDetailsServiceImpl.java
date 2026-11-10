@@ -1,0 +1,26 @@
+package com.sportplus.pulsepower.iam.infrastructure.authorization.sfs.services;
+
+import com.sportplus.pulsepower.iam.domain.model.valueobjects.EmailAddress;
+import com.sportplus.pulsepower.iam.domain.repositories.UserRepository;
+import com.sportplus.pulsepower.iam.infrastructure.authorization.sfs.model.UserDetailsImpl;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.stereotype.Service;
+
+@Service(value = "defaultUserDetailsService")
+public class UserDetailsServiceImpl implements UserDetailsService {
+
+    private final UserRepository userRepository;
+
+    public UserDetailsServiceImpl(UserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
+
+    @Override
+    public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+        return userRepository.findByEmail(new EmailAddress(username))
+                .map(UserDetailsImpl::build)
+                .orElseThrow(() -> new UsernameNotFoundException("User not found: " + username));
+    }
+}
