@@ -5,8 +5,13 @@ import com.sportplus.pulsepower.physiology.infrastructure.ai.GeminiUnavailableEx
 import com.sportplus.pulsepower.shared.application.security.CurrentUserProvider;
 import com.sportplus.pulsepower.sleep.domain.services.SleepQueryService;
 import com.sportplus.pulsepower.sleep.domain.model.queries.GetSleepRecordsByUserIdQuery;
+import com.sportplus.pulsepower.training.domain.model.commands.AddPlannedActivityCommand;
+import com.sportplus.pulsepower.training.domain.model.commands.SetPlanPeriodCommand;
+import com.sportplus.pulsepower.training.domain.services.TrainingCommandService;
 import com.sportplus.pulsepower.training.domain.services.TrainingQueryService;
 import com.sportplus.pulsepower.training.domain.model.queries.GetSessionsByUserIdQuery;
+import com.sportplus.pulsepower.training.domain.model.valueobjects.ActivityKind;
+import com.sportplus.pulsepower.training.domain.model.valueobjects.Intensity;
 import com.sportplus.pulsepower.wellness.domain.services.WellnessQueryService;
 import com.sportplus.pulsepower.wellness.domain.model.queries.GetCheckInsByUserIdQuery;
 import jakarta.validation.Valid;
@@ -26,15 +31,18 @@ public class AssistantController {
     private final TrainingQueryService training;
     private final WellnessQueryService wellness;
     private final GeminiChatClient geminiChatClient;
+    private final TrainingCommandService trainingCommand;
 
     public AssistantController(CurrentUserProvider user, SleepQueryService sleep,
                                TrainingQueryService training, WellnessQueryService wellness,
-                               GeminiChatClient geminiChatClient) {
+                               GeminiChatClient geminiChatClient, TrainingCommandService trainingCommand) {
         this.user=user; this.sleep=sleep; this.training=training; this.wellness=wellness;
-        this.geminiChatClient=geminiChatClient;
+        this.geminiChatClient=geminiChatClient; this.trainingCommand=trainingCommand;
     }
     public record Question(@NotBlank @Size(max=1000) String message) {}
     public record Answer(String answer, String source, String from, String to) {}
+    public record RoutineRequest(@Size(max=500) String preferences) {}
+    public record RoutineAnswer(String message, int activitiesCreated, String planFrom, String planTo) {}
     private Answer reply(String text) { return new Answer(text, "platform-guide", null, null); }
     private boolean matches(String text, String pattern) { return java.util.regex.Pattern.compile(pattern).matcher(text).find(); }
     private String number(double n) { return String.format(Locale.forLanguageTag("es-PE"), "%.1f", n); }
@@ -104,6 +112,69 @@ public class AssistantController {
             return new Answer(aiText,"gemini-2.0-flash",from.toString(),to.toString());
         } catch (GeminiUnavailableException e) {
             return new Answer(snapshot,"fallback-local",from.toString(),to.toString());
+        }
+    }
+
+    @PostMapping("/routines")
+    public RoutineAnswer generateRoutine(@Valid @RequestBody RoutineRequest request) {
+        var id=user.requireCurrentUserId();
+        var zone=ZoneId.of("America/Lima"); var today=LocalDate.now(zone);
+        var planFrom=today.minusDays(7); var planTo=today.plusDays(90);
+
+        var sleepRows=sleep.handle(new GetSleepRecordsByUserIdQuery(id)).stream()
+            .filter(r->!r.getEndedAt().atZone(zone).toLocalDate().isBefore(today.minusDays(6))).toList();
+        var trainRows=training.handle(new GetSessionsByUserIdQuery(id)).stream()
+            .filter(r->!r.getDate().isBefore(today.minusDays(6))).toList();
+        var wellRows=wellness.handle(new GetCheckInsByUserIdQuery(id)).stream()
+            .filter(r->!r.getDate().isBefore(today.minusDays(6))).toList();
+
+        var context=new StringBuilder();
+        if(!sleepRows.isEmpty()) {
+            double avg=sleepRows.stream().mapToDouble(r->r.durationHours()).average().orElse(0);
+            context.append(String.format("Sueño últimos 7 días: promedio %.1fh/noche (%d registros). ", avg, sleepRows.size()));
+        }
+        if(!trainRows.isEmpty()) {
+            double avgEff=trainRows.stream().mapToInt(r->r.getPerceivedEffort()).average().orElse(0);
+            context.append(String.format("Entrenamiento: %d sesiones, esfuerzo medio %.1f/10. ", trainRows.size(), avgEff));
+        }
+        if(!wellRows.isEmpty()) {
+            double avgStress=wellRows.stream().mapToInt(r->r.getStress()).average().orElse(0);
+            double avgMood=wellRows.stream().mapToInt(r->r.getMood()).average().orElse(0);
+            context.append(String.format("Bienestar: estrés medio %.1f/10, ánimo %.1f/5. ", avgStress, avgMood));
+        }
+
+        var pref=request.preferences()!=null&&!request.preferences().isBlank()
+            ? "Preferencias del usuario: "+request.preferences()+". " : "";
+        var systemPrompt="""
+            Eres un entrenador personal experto. Basándote en los datos del usuario y sus preferencias, genera una rutina de entrenamiento para los próximos 7 días.
+            Responde ÚNICAMENTE con un objeto JSON válido con esta estructura exacta, sin texto adicional:
+            {"planName":"string","summary":"string con resumen motivador en español de 2-3 oraciones","activities":[{"dayOffset":1,"activity":"string","durationMinutes":number,"intensity":"LOW|MEDIUM|HIGH","kind":"WORKOUT|ACTIVE_REST","startTime":"HH:mm"}]}
+            Reglas:
+            - dayOffset va del 1 al 7 (días desde hoy).
+            - Incluye entre 4 y 6 actividades. Alterna intensidades. Incluye al menos 1 día de descanso activo.
+            - intensity debe ser exactamente LOW, MEDIUM o HIGH.
+            - kind debe ser exactamente WORKOUT o ACTIVE_REST.
+            - No diagnostiques ni prescribas medicamentos.
+            Datos del usuario: """+context+pref;
+
+        try {
+            var dto=geminiChatClient.generateRoutine(systemPrompt);
+            trainingCommand.handle(new SetPlanPeriodCommand(id, planFrom, planTo));
+            int created=0;
+            for(var act:dto.activities()) {
+                try {
+                    var date=today.plusDays(act.dayOffset());
+                    var startTime=act.startTime()!=null&&!act.startTime().isBlank()
+                        ? java.time.LocalTime.parse(act.startTime()) : null;
+                    trainingCommand.handle(new AddPlannedActivityCommand(id, date, startTime, act.activity(),
+                        act.durationMinutes(), Intensity.valueOf(act.intensity().toUpperCase()),
+                        ActivityKind.valueOf(act.kind().toUpperCase())));
+                    created++;
+                } catch(Exception ignored) {}
+            }
+            return new RoutineAnswer(dto.summary(), created, today.plusDays(1).toString(), today.plusDays(7).toString());
+        } catch(GeminiUnavailableException e) {
+            return new RoutineAnswer("No fue posible generar la rutina en este momento. Intenta nuevamente en unos minutos.", 0, null, null);
         }
     }
 }
