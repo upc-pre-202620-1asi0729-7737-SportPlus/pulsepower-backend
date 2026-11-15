@@ -9,6 +9,7 @@ import com.sportplus.pulsepower.sleep.domain.model.valueobjects.SleepSource;
 import com.sportplus.pulsepower.sleep.domain.services.SleepQueryService;
 import com.sportplus.pulsepower.training.domain.model.aggregates.TrainingSession;
 import com.sportplus.pulsepower.training.domain.model.queries.GetSessionsByUserIdQuery;
+import com.sportplus.pulsepower.training.domain.services.TrainingCommandService;
 import com.sportplus.pulsepower.training.domain.services.TrainingQueryService;
 import com.sportplus.pulsepower.wellness.domain.model.aggregates.WellnessCheckIn;
 import com.sportplus.pulsepower.wellness.domain.model.queries.GetCheckInsByUserIdQuery;
@@ -37,6 +38,7 @@ class AssistantControllerTest {
     @Mock private GeminiChatClient geminiChatClient;
     @Mock private SleepQueryService sleepQueryService;
     @Mock private TrainingQueryService trainingQueryService;
+    @Mock private TrainingCommandService trainingCommandService;
     @Mock private WellnessQueryService wellnessQueryService;
     @Mock private CurrentUserProvider currentUserProvider;
 
@@ -45,7 +47,7 @@ class AssistantControllerTest {
     @BeforeEach
     void setUp() {
         controller = new AssistantController(
-            currentUserProvider, sleepQueryService, trainingQueryService, wellnessQueryService, geminiChatClient);
+            currentUserProvider, sleepQueryService, trainingQueryService, wellnessQueryService, geminiChatClient, trainingCommandService);
     }
 
     private SleepRecord sleepRecordForToday() {
