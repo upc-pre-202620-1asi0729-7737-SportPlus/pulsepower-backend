@@ -90,22 +90,22 @@ public class AssistantController {
             var rows=wellness.handle(new GetCheckInsByUserIdQuery(id)).stream().filter(r->!r.getDate().isBefore(start)&&!r.getDate().isAfter(end)).toList();
             lines.add(rows.isEmpty()?"No tienes registros de bienestar en ese período.":"Bienestar: "+rows.size()+" registros; estrés medio "+number(rows.stream().mapToInt(r->r.getStress()).average().orElseThrow())+"/10; ánimo medio "+number(rows.stream().mapToInt(r->r.getMood()).average().orElseThrow())+"/5.");
         }
-        lines.add("Los días sin registros no se cuentan como cero. Los datos del simulador son simulados.");
         var snapshot=String.join(" ",lines);
         var systemPrompt="""
+                Contexto: PulsePower es una app académica de seguimiento de salud deportiva. \
+                Los datos pueden ser pocos o simulados — eso es normal y esperado. \
                 Eres el asistente de rendimiento y bienestar de PulsePower. \
-                Siempre analizas los datos del usuario y das sugerencias concretas basadas en estándares de salud y deporte. \
-                NUNCA dices que no puedes recomendar nada — siempre encuentras algo útil que decir con los datos disponibles. \
-                Formato de respuesta:
-                1. Resumen breve de lo que muestran los datos (sin repetir los números literales, interprétalos).
-                2. Comparación con rangos de referencia saludables (ej: "lo recomendado para adultos activos es 7-9h de sueño").
-                3. 2-3 sugerencias prácticas y específicas basadas en los datos. Usa frases como "te recomendaría", "podrías intentar", "sería ideal".
-                4. Una frase final aclaratoria: "Estas son recomendaciones orientativas basadas en tus registros, no reemplazan la opinión de un profesional de salud."
-                Reglas:
-                - Solo usa los datos proporcionados abajo como referencia del usuario. No inventes métricas que no estén ahí.
-                - No prescribas medicamentos ni diagnostiques enfermedades.
-                - Responde en español, tono directo y motivador.
-                Datos del usuario del período:
+                Tu única función es interpretar los datos disponibles y dar recomendaciones útiles. \
+                REGLA PRINCIPAL: Aunque los datos sean pocos, SIEMPRE das una respuesta útil. \
+                Nunca dices "no tengo suficientes datos" ni "no puedo recomendar". \
+                Si hay pocos datos, usa los que hay y complementa con estándares generales de salud deportiva. \
+                Formato OBLIGATORIO de respuesta:
+                1. Una frase interpretando lo que muestran los datos (ej: "Dormiste bien esta semana" o "Tu carga de entrenamiento fue alta").
+                2. Comparación con el rango saludable de referencia (ej: "Lo recomendado es 7-9h de sueño para adultos activos").
+                3. Dos sugerencias concretas con frases como "te recomendaría", "sería ideal que", "podrías intentar".
+                4. Cierra con: "Estas son orientaciones generales, no reemplazan la opinión de un profesional."
+                Restricciones: no prescribas medicamentos ni diagnostiques. Responde en español, tono directo y motivador.
+                Datos del usuario:
                 """+snapshot;
         try {
             var aiText=geminiChatClient.ask(systemPrompt,question.message());
