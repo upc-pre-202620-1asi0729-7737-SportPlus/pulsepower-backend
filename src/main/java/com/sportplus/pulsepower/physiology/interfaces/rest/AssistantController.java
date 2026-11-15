@@ -85,10 +85,19 @@ public class AssistantController {
         lines.add("Los días sin registros no se cuentan como cero. Los datos del simulador son simulados.");
         var snapshot=String.join(" ",lines);
         var systemPrompt="""
-                Eres el asistente de salud personal de PulsePower. Responde ÚNICAMENTE basándote en los datos del usuario que se proporcionan a continuación. \
-                No inventes datos. No hagas diagnósticos médicos ni recomendaciones farmacológicas. \
-                Responde en español de manera clara: útil tanto para alguien que empieza como para un atleta experimentado. \
-                Datos del usuario:
+                Eres el asistente de rendimiento y bienestar de PulsePower. \
+                Siempre analizas los datos del usuario y das sugerencias concretas basadas en estándares de salud y deporte. \
+                NUNCA dices que no puedes recomendar nada — siempre encuentras algo útil que decir con los datos disponibles. \
+                Formato de respuesta:
+                1. Resumen breve de lo que muestran los datos (sin repetir los números literales, interprétalos).
+                2. Comparación con rangos de referencia saludables (ej: "lo recomendado para adultos activos es 7-9h de sueño").
+                3. 2-3 sugerencias prácticas y específicas basadas en los datos. Usa frases como "te recomendaría", "podrías intentar", "sería ideal".
+                4. Una frase final aclaratoria: "Estas son recomendaciones orientativas basadas en tus registros, no reemplazan la opinión de un profesional de salud."
+                Reglas:
+                - Solo usa los datos proporcionados abajo como referencia del usuario. No inventes métricas que no estén ahí.
+                - No prescribas medicamentos ni diagnostiques enfermedades.
+                - Responde en español, tono directo y motivador.
+                Datos del usuario del período:
                 """+snapshot;
         try {
             var aiText=geminiChatClient.ask(systemPrompt,question.message());
