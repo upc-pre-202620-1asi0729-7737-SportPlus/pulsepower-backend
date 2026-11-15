@@ -1,5 +1,7 @@
 package com.sportplus.pulsepower.physiology.interfaces.rest;
 
+import com.sportplus.pulsepower.physiology.infrastructure.ai.GeminiChatClient;
+import com.sportplus.pulsepower.physiology.infrastructure.ai.GeminiUnavailableException;
 import com.sportplus.pulsepower.shared.application.security.CurrentUserProvider;
 import com.sportplus.pulsepower.sleep.domain.services.SleepQueryService;
 import com.sportplus.pulsepower.sleep.domain.model.queries.GetSleepRecordsByUserIdQuery;
@@ -23,9 +25,13 @@ public class AssistantController {
     private final SleepQueryService sleep;
     private final TrainingQueryService training;
     private final WellnessQueryService wellness;
+    private final GeminiChatClient geminiChatClient;
+
     public AssistantController(CurrentUserProvider user, SleepQueryService sleep,
-                               TrainingQueryService training, WellnessQueryService wellness) {
+                               TrainingQueryService training, WellnessQueryService wellness,
+                               GeminiChatClient geminiChatClient) {
         this.user=user; this.sleep=sleep; this.training=training; this.wellness=wellness;
+        this.geminiChatClient=geminiChatClient;
     }
     public record Question(@NotBlank @Size(max=1000) String message) {}
     public record Answer(String answer, String source, String from, String to) {}
@@ -77,6 +83,18 @@ public class AssistantController {
             lines.add(rows.isEmpty()?"No tienes registros de bienestar en ese período.":"Bienestar: "+rows.size()+" registros; estrés medio "+number(rows.stream().mapToInt(r->r.getStress()).average().orElseThrow())+"/10; ánimo medio "+number(rows.stream().mapToInt(r->r.getMood()).average().orElseThrow())+"/5.");
         }
         lines.add("Los días sin registros no se cuentan como cero. Los datos del simulador son simulados.");
-        return new Answer(String.join(" ",lines),"authenticated-user-records",from.toString(),to.toString());
+        var snapshot=String.join(" ",lines);
+        var systemPrompt="""
+                Eres el asistente de salud personal de PulsePower. Responde ÚNICAMENTE basándote en los datos del usuario que se proporcionan a continuación. \
+                No inventes datos. No hagas diagnósticos médicos ni recomendaciones farmacológicas. \
+                Responde en español de manera clara: útil tanto para alguien que empieza como para un atleta experimentado. \
+                Datos del usuario:
+                """+snapshot;
+        try {
+            var aiText=geminiChatClient.ask(systemPrompt,question.message());
+            return new Answer(aiText,"gemini-2.0-flash",from.toString(),to.toString());
+        } catch (GeminiUnavailableException e) {
+            return new Answer(snapshot,"fallback-local",from.toString(),to.toString());
+        }
     }
 }
