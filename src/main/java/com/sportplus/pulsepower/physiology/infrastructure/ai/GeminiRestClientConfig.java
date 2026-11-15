@@ -13,13 +13,12 @@ public class GeminiRestClientConfig {
 
     @Bean("geminiRestClient")
     public RestClient geminiRestClient(
-            RestClient.Builder builder,
             @Value("${pulsepower.gemini.base-url}") String baseUrl,
             @Value("${pulsepower.gemini.timeout.connect-ms}") int connectMs,
             @Value("${pulsepower.gemini.timeout.read-ms}") int readMs) {
         var factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(Duration.ofMillis(connectMs));
         factory.setReadTimeout(Duration.ofMillis(readMs));
-        return builder.baseUrl(baseUrl).requestFactory(factory).build();
+        return RestClient.builder().baseUrl(baseUrl).requestFactory(factory).build();
     }
 }
